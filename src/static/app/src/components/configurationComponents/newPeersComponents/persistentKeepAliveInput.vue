@@ -18,7 +18,8 @@ export default {
 			<LocaleText t="Persistent Keepalive"></LocaleText>
 		</small>
 	</label>
-	<input type="number" class="form-control form-control-sm rounded-3"
+	<input type="text" class="form-control form-control-sm rounded-3 font-monospace"
+	       placeholder="25 or 20-30 (AWG 3.x)"
 	       :disabled="this.saving"
 	       v-model="this.data.keepalive"
 	       id="peer_keep_alive">

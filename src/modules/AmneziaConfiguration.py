@@ -5,6 +5,7 @@ import random, sqlalchemy, os, subprocess, re, uuid
 from flask import current_app
 from .PeerJobs import PeerJobs
 from .AmneziaPeer import AmneziaPeer
+from .AmneziaSettings import AMNEZIA_INTERFACE_FIELDS, PersistentKeepaliveStorage
 from .PeerShareLinks import PeerShareLinks
 from .Utilities import RegexMatch, CheckAddress, CheckPeerKey
 from .WireguardConfiguration import WireguardConfiguration
@@ -41,12 +42,21 @@ class AmneziaConfiguration(WireguardConfiguration):
         self.J2 = ""
         self.J3 = ""
         self.Itime = ""
+        self.HeaderProtectionKey = ""
+        self.ContentPaddingAddition = ""
+        self.RekeyAfterTime = ""
+        self.RekeyTimeout = ""
+        self.RejectAfterTime = ""
+        self.KeepaliveTimeout = ""
+        self.MaxHandshakeAttempts = ""
+        self.RandomTrailers = ""
+        self.DisableCookies = ""
 
         super().__init__(DashboardConfig, AllPeerJobs, AllPeerShareLinks, DashboardWebHooks, name, data, backup, startup, wg=False)
 
     def toJson(self):
         self.Status = self.getStatus()
-        return {
+        result = {
             "Status": self.Status,
             "Name": self.Name,
             "PrivateKey": self.PrivateKey,
@@ -68,27 +78,9 @@ class AmneziaConfiguration(WireguardConfiguration):
             "TotalPeers": len(self.Peers),
             "Protocol": self.Protocol,
             "Table": self.Table,
-            "Jc": self.Jc,
-            "Jmin": self.Jmin,
-            "Jmax": self.Jmax,
-            "S1": self.S1,
-            "S2": self.S2,
-            "S3": self.S3,
-            "S4": self.S4,
-            "H1": self.H1,
-            "H2": self.H2,
-            "H3": self.H3,
-            "H4": self.H4,
-            "I1": self.I1,
-            "I2": self.I2,
-            "I3": self.I3,
-            "I4": self.I4,
-            "I5": self.I5,
-            "J1": self.J1,
-            "J2": self.J2,
-            "J3": self.J3,
-            "Itime": self.Itime
         }
+        result.update({key: getattr(self, key) for key in AMNEZIA_INTERFACE_FIELDS})
+        return result
 
     def createDatabase(self, dbName = None):
         def generate_column_obj():
@@ -110,6 +102,7 @@ class AmneziaConfiguration(WireguardConfiguration):
                 sqlalchemy.Column('cumu_data', sqlalchemy.Float),
                 sqlalchemy.Column('mtu', sqlalchemy.Integer),
                 sqlalchemy.Column('keepalive', sqlalchemy.Integer),
+                sqlalchemy.Column('keepalive_range', sqlalchemy.Text),
                 sqlalchemy.Column('notes', sqlalchemy.Text),
                 sqlalchemy.Column('remote_endpoint', sqlalchemy.String(255)),
                 sqlalchemy.Column('preshared_key', sqlalchemy.String(255))
@@ -197,6 +190,19 @@ class AmneziaConfiguration(WireguardConfiguration):
                     with self.engine.begin() as conn:
                         for i in p:
                             if "PublicKey" in i.keys():
+                                status, message, keepalive, keepalive_range = PersistentKeepaliveStorage(
+                                    i.get(
+                                        "PersistentKeepalive",
+                                        self.DashboardConfig.GetConfig("Peers", "peer_keep_alive")[1],
+                                    ),
+                                    self.Protocol,
+                                )
+                                if not status:
+                                    current_app.logger.warning(
+                                        f"Ignoring invalid PersistentKeepalive for peer {i['PublicKey']}: {message}"
+                                    )
+                                    keepalive = 0
+                                    keepalive_range = None
                                 tempPeer = conn.execute(self.peersTable.select().where(
                                     self.peersTable.columns.id == i['PublicKey']
                                 )).mappings().fetchone()
@@ -218,7 +224,8 @@ class AmneziaConfiguration(WireguardConfiguration):
                                         "cumu_sent": 0,
                                         "cumu_data": 0,
                                         "mtu": self.DashboardConfig.GetConfig("Peers", "peer_mtu")[1],
-                                        "keepalive": self.DashboardConfig.GetConfig("Peers", "peer_keep_alive")[1],
+                                        "keepalive": keepalive,
+                                        "keepalive_range": keepalive_range,
                                         "notes": "",
                                         "remote_endpoint": self.DashboardConfig.GetConfig("Peers", "remote_endpoint")[1],
                                         "preshared_key": i["PresharedKey"] if "PresharedKey" in i.keys() else ""
@@ -227,10 +234,18 @@ class AmneziaConfiguration(WireguardConfiguration):
                                         self.peersTable.insert().values(tempPeer)
                                     )
                                 else:
+                                    tempPeer = dict(tempPeer)
+                                    tempPeer.update({
+                                        "allowed_ip": i.get("AllowedIPs", "N/A"),
+                                        "keepalive": keepalive,
+                                        "keepalive_range": keepalive_range,
+                                    })
                                     conn.execute(
-                                        self.peersTable.update().values({
-                                            "allowed_ip": i.get("AllowedIPs", "N/A")
-                                        }).where(
+                                        self.peersTable.update().values(
+                                            allowed_ip=tempPeer["allowed_ip"],
+                                            keepalive=tempPeer["keepalive"],
+                                            keepalive_range=tempPeer["keepalive_range"],
+                                        ).where(
                                             self.peersTable.columns.id == i['PublicKey']
                                         )
                                     )
@@ -260,6 +275,11 @@ class AmneziaConfiguration(WireguardConfiguration):
 
             with self.engine.begin() as conn:
                 for i in peers:
+                    status, message, keepalive, keepalive_range = PersistentKeepaliveStorage(
+                        i['keepalive'], self.Protocol
+                    )
+                    if not status:
+                        return False, [], message
                     newPeer = {
                         "id": i['id'],
                         "private_key": i['private_key'],
@@ -277,7 +297,8 @@ class AmneziaConfiguration(WireguardConfiguration):
                         "cumu_sent": 0,
                         "cumu_data": 0,
                         "mtu": i['mtu'],
-                        "keepalive": i['keepalive'],
+                        "keepalive": keepalive,
+                        "keepalive_range": keepalive_range,
                         "notes": i.get('notes', ''),
                         "remote_endpoint": self.DashboardConfig.GetConfig("Peers", "remote_endpoint")[1],
                         "preshared_key": i["preshared_key"]
@@ -293,7 +314,12 @@ class AmneziaConfiguration(WireguardConfiguration):
                     with open(uid, "w+") as f:
                         f.write(p['preshared_key'])
 
-                command = [self.Protocol, "set", self.Name, "peer", p['id'], "allowed-ips", cleanedAllowedIPs[p["id"]], "preshared-key", uid if presharedKeyExist else "/dev/null"]
+                command = [
+                    self.Protocol, "set", self.Name, "peer", p['id'],
+                    "allowed-ips", cleanedAllowedIPs[p["id"]],
+                    "persistent-keepalive", str(p["keepalive"] or 0),
+                    "preshared-key", uid if presharedKeyExist else "/dev/null",
+                ]
                 subprocess.check_output(command, stderr=subprocess.STDOUT)
 
                 if presharedKeyExist:

@@ -11,6 +11,11 @@ from itertools import islice
 from flask import current_app
 
 from .DatabaseConnection import ConnectionString
+from .AmneziaSettings import (
+    AMNEZIA_INTERFACE_FIELDS,
+    PersistentKeepaliveStorage,
+    ValidateAmneziaInterfaceSettings,
+)
 from .DashboardConfig import DashboardConfig
 from .Peer import Peer
 from .PeerJobs import PeerJobs
@@ -109,28 +114,7 @@ class WireguardConfiguration:
             }
 
             if self.Protocol == 'awg':
-                values = {
-                    "Jc": self.Jc,
-                    "Jmin": self.Jmin,
-                    "Jmax": self.Jmax,
-                    "S1": self.S1,
-                    "S2": self.S2,
-                    "S3": self.S3,
-                    "S4": self.S4,
-                    "H1": self.H1,
-                    "H2": self.H2,
-                    "H3": self.H3,
-                    "H4": self.H4,
-                    "I1": self.I1,
-                    "I2": self.I2,
-                    "I3": self.I3,
-                    "I4": self.I4,
-                    "I5": self.I5,
-                    "J1": self.J1,
-                    "J2": self.J2,
-                    "J3": self.J3,
-                    "Itime": self.Itime
-                }
+                values = {key: getattr(self, key) for key in AMNEZIA_INTERFACE_FIELDS}
                 for key, value in values.items():
                     if value != None and str(value).strip():
                         self.__parser["Interface"][key] = str(value)
@@ -274,6 +258,7 @@ class WireguardConfiguration:
                 sqlalchemy.Column('cumu_data', sqlalchemy.Float),
                 sqlalchemy.Column('mtu', sqlalchemy.Integer),
                 sqlalchemy.Column('keepalive', sqlalchemy.Integer),
+                sqlalchemy.Column('keepalive_range', sqlalchemy.Text),
                 sqlalchemy.Column('notes', sqlalchemy.Text),
                 sqlalchemy.Column('remote_endpoint', sqlalchemy.String(255)),
                 sqlalchemy.Column('preshared_key', sqlalchemy.String(255))
@@ -447,6 +432,7 @@ class WireguardConfiguration:
                                     "cumu_data": 0,
                                     "mtu": self.DashboardConfig.GetConfig("Peers", "peer_mtu")[1] if len(self.DashboardConfig.GetConfig("Peers", "peer_mtu")[1]) > 0 else None,
                                     "keepalive": self.DashboardConfig.GetConfig("Peers", "peer_keep_alive")[1] if len(self.DashboardConfig.GetConfig("Peers", "peer_keep_alive")[1]) > 0 else None,
+                                    "keepalive_range": None,
                                     "notes": "",
                                     "remote_endpoint": self.DashboardConfig.GetConfig("Peers", "remote_endpoint")[1],
                                     "preshared_key": i["PresharedKey"] if "PresharedKey" in i.keys() else ""
@@ -531,6 +517,11 @@ class WireguardConfiguration:
 
             with self.engine.begin() as conn:
                 for i in peers:
+                    status, message, keepalive, keepalive_range = PersistentKeepaliveStorage(
+                        i['keepalive'], self.Protocol
+                    )
+                    if not status:
+                        return False, [], message
                     newPeer = {
                         "id": i['id'],
                         "private_key": i['private_key'],
@@ -548,7 +539,8 @@ class WireguardConfiguration:
                         "cumu_sent": 0,
                         "cumu_data": 0,
                         "mtu": i['mtu'],
-                        "keepalive": i['keepalive'],
+                        "keepalive": keepalive,
+                        "keepalive_range": keepalive_range,
                         "notes": i.get("notes", ""),
                         "remote_endpoint": self.DashboardConfig.GetConfig("Peers", "remote_endpoint")[1],
                         "preshared_key": i["preshared_key"]
@@ -564,7 +556,12 @@ class WireguardConfiguration:
                     with open(uid, "w+") as f:
                         f.write(p['preshared_key'])
 
-                command = [self.Protocol, "set", self.Name, "peer", p['id'], "allowed-ips", cleanedAllowedIPs[p["id"]], "preshared-key", uid if presharedKeyExist else "/dev/null"]
+                command = [
+                    self.Protocol, "set", self.Name, "peer", p['id'],
+                    "allowed-ips", cleanedAllowedIPs[p["id"]],
+                    "persistent-keepalive", str(p["keepalive"] or 0),
+                    "preshared-key", uid if presharedKeyExist else "/dev/null",
+                ]
                 subprocess.check_output(command, stderr=subprocess.STDOUT)
 
                 if presharedKeyExist:
@@ -1008,6 +1005,10 @@ class WireguardConfiguration:
         return True, zip
 
     def updateConfigurationSettings(self, newData: dict) -> tuple[bool, str]:
+        if self.Protocol == 'awg':
+            status, message, _ = ValidateAmneziaInterfaceSettings(newData)
+            if not status:
+                return False, message
         if self.Status:
             self.toggleConfiguration()
         original = []
@@ -1017,7 +1018,7 @@ class WireguardConfiguration:
             allowEdit = ["Address", "PreUp", "PostUp", "PreDown", "PostDown", "ListenPort", "Table"]
             awgKeys = []
             if self.Protocol == 'awg':
-                awgKeys = ["Jc", "Jmin", "Jmax", "S1", "S2", "S3", "S4", "H1", "H2", "H3", "H4", "I1", "I2", "I3", "I4", "I5", "J1", "J2", "J3", "Itime"]
+                awgKeys = list(AMNEZIA_INTERFACE_FIELDS)
                 allowEdit += awgKeys
             start = original.index("[Interface]")
             try:
@@ -1047,7 +1048,7 @@ class WireguardConfiguration:
         if not status:
             return False, msg
         for i in allowEdit:
-            setattr(self, i, str(newData[i]))
+            setattr(self, i, str(newData.get(i, "")))
                 
         return True, ""
 
@@ -1267,6 +1268,8 @@ class WireguardConfiguration:
             if not value.isnumeric() or not (1 <= int(value) <= 65535):
                 status = False
                 msg = "Listen Port must be >= 1 and <= 65535"        
+        elif key == "PersistentKeepalive" and value:
+            status, msg, _, _ = PersistentKeepaliveStorage(value, self.Protocol)
         return status, msg
         
     def getTransferTableSize(self):

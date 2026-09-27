@@ -120,6 +120,7 @@ class DashboardConfig:
             'cumu_data': db.Float,
             'mtu': db.Integer,
             'keepalive': db.Integer,
+            'keepalive_range': db.Text,
             'notes': db.Text,
             'remote_endpoint': db.String(255),
             'preshared_key': db.String(255)

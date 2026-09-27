@@ -30,6 +30,10 @@ from modules.SystemStatus import SystemStatus
 from modules.PeerShareLinks import PeerShareLinks
 from modules.PeerJobs import PeerJobs
 from modules.DashboardConfig import DashboardConfig
+from modules.AmneziaSettings import (
+    PersistentKeepaliveStorage,
+    ValidateAmneziaInterfaceSettings,
+)
 from modules.WireguardConfiguration import WireguardConfiguration
 from modules.AmneziaConfiguration import AmneziaConfiguration
 from modules.DashboardOIDC import DashboardOIDC
@@ -455,6 +459,11 @@ def API_addWireguardConfiguration():
     
     if data.get("Protocol") not in ProtocolsEnabled():
         return ResponseObject(False, "Please provide a valid protocol: wg / awg.")
+
+    if data.get("Protocol") == "awg":
+        status, message, field = ValidateAmneziaInterfaceSettings(data)
+        if not status:
+            return ResponseObject(False, message, field)
 
     # Check duplicate names, ports, address
     for i in WireguardConfigurations.values():
@@ -950,7 +959,7 @@ def API_addPeers(configName):
             
             
             mtu: int = data.get('mtu', None)
-            keep_alive: int = data.get('keepalive', None)
+            keep_alive: int | str | None = data.get('keepalive', None)
             notes: str = data.get('notes', '')
             preshared_key: str = data.get('preshared_key', "")            
     
@@ -963,17 +972,16 @@ def API_addPeers(configName):
                         mtu = 0
                 else:
                     mtu = 0
-            if type(keep_alive) is not int or keep_alive < 0:
-                default = DashboardConfig.GetConfig("Peers", "peer_keep_alive")[1]
-                if default.isnumeric():
-                    try:
-                        keep_alive = int(default)
-                    except Exception as e:
-                        keep_alive = 0
-                else:
-                    keep_alive = 0
-            
             config = WireguardConfigurations.get(configName)
+            if keep_alive is None or str(keep_alive).strip() == "":
+                keep_alive = DashboardConfig.GetConfig("Peers", "peer_keep_alive")[1]
+            status, message, keepalive, keepalive_range = PersistentKeepaliveStorage(
+                keep_alive, config.Protocol
+            )
+            if not status:
+                return ResponseObject(False, message)
+            keep_alive = keepalive_range if config.Protocol == "awg" else keepalive
+
             if not config.getStatus():
                 config.toggleConfiguration()
             ipStatus, availableIps = config.getAvailableIP(-1)

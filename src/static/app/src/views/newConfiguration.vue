@@ -9,6 +9,12 @@ import {ref} from "vue";
 import {DashboardConfigurationStore} from "@/stores/DashboardConfigurationStore.js";
 import {exp} from "qrcode/lib/core/galois-field.js";
 import NewConfigurationTemplates from "@/components/newConfigurationComponents/newConfigurationTemplates.vue";
+import {
+	amneziaBooleanFields,
+	amneziaInterfaceFields,
+	createDefaultAmneziaSettings,
+	generateHeaderProtectionKey
+} from "@/models/AmneziaSettings.js";
 
 export default {
 	name: "newConfiguration",
@@ -21,7 +27,7 @@ export default {
 		})
 		const dashboardStore = DashboardConfigurationStore();
 		
-		return {store, protocols, dashboardStore}
+		return {store, protocols, dashboardStore, amneziaBooleanFields, amneziaInterfaceFields}
 	},
 	data(){
 		return {
@@ -38,22 +44,7 @@ export default {
 				PostDown: "",
 				Table: "",
 				Protocol: "wg",
-				Jc: 5,
-				Jmin: 49,
-				Jmax: 998,
-				S1: 17,
-				S2: 110,
-				S3: 1,
-				S4: 2,
-				H1: 0,
-				H2: 0,
-				H3: 0,
-				H4: 0,
-				I1: "0",
-				I2: "0",
-				I3: "0",
-				I4: "0",
-				I5: "0"
+				...createDefaultAmneziaSettings()
 			},
 			numberOfAvailableIPs: "0",
 			error: false,
@@ -78,6 +69,9 @@ export default {
 		});
 	},
 	methods: {
+		generateHeaderProtectionKey(){
+			this.newConfiguration.HeaderProtectionKey = generateHeaderProtectionKey();
+		},
 		rand(min, max){
 			return Math.floor(Math.random() * (max - min) + min);
 		},
@@ -386,13 +380,25 @@ export default {
 									</div>
 								</div>
 
-								<div class="card rounded-3" 
+								<div class="card rounded-3"
 								     v-if="this.newConfiguration.Protocol === 'awg'"
-								     v-for="key in ['Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4', 'H1', 'H2', 'H3', 'H4', 'I1', 'I2', 'I3', 'I4', 'I5']">
+								     v-for="key in amneziaInterfaceFields" :key="key">
 									<div class="card-header">{{ key }}</div>
 									<div class="card-body">
-										<input type="text"
-										       class="form-control font-monospace" :id="key" v-model="this.newConfiguration[key]">
+										<select v-if="amneziaBooleanFields.includes(key)"
+										        class="form-select font-monospace" :id="key" v-model="this.newConfiguration[key]">
+											<option value="">Not set</option>
+											<option value="off">off</option>
+											<option value="on">on</option>
+										</select>
+										<div v-else class="d-flex align-items-center gap-2">
+											<input type="text" class="form-control font-monospace rounded-3"
+											       :id="key" v-model="this.newConfiguration[key]">
+											<button v-if="key === 'HeaderProtectionKey'" type="button"
+											        class="btn btn-outline-primary rounded-3 flex-shrink-0" @click="generateHeaderProtectionKey()">
+												Generate
+											</button>
+										</div>
 									</div>
 								</div>
 							</div>

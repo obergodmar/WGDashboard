@@ -5,8 +5,8 @@ import re
 import subprocess
 import uuid
 
-from flask import current_app
 from .Peer import Peer
+from .AmneziaSettings import PersistentKeepaliveStorage
 from .Utilities import CheckAddress, ValidateDNSAddress, GenerateWireguardPublicKey
 
 
@@ -35,7 +35,7 @@ class AmneziaPeer(Peer):
         peers = []
         for peer in self.configuration.getPeersList():
             # Make sure to exclude your own data when updating since its not really relevant
-            if peer.id != self.id:
+            if peer.id == self.id:
                 continue
             peers.append(peer)
 
@@ -54,14 +54,14 @@ class AmneziaPeer(Peer):
         if isinstance(mtu, str):
             mtu = 0
 
-        if isinstance(keepalive, str):
-            keepalive = 0
-        
         if mtu not in range(0, 1461):
             return False, "MTU format is not correct"
 
-        if keepalive < 0:
-            return False, "Persistent Keepalive format is not correct"
+        status, message, keepalive, keepalive_range = PersistentKeepaliveStorage(
+            keepalive, self.configuration.Protocol
+        )
+        if not status:
+            return False, message
 
         if len(private_key) > 0:
             pubKey = GenerateWireguardPublicKey(private_key)
@@ -81,7 +81,12 @@ class AmneziaPeer(Peer):
             if not CheckAddress(newAllowedIPs):
                 return False, "Allowed IPs entry format is incorrect"
 
-            command = [self.configuration.Protocol, "set", self.configuration.Name, "peer", self.id, "allowed-ips", newAllowedIPs, "preshared-key", uid if psk_exist else "/dev/null"]
+            command = [
+                self.configuration.Protocol, "set", self.configuration.Name,
+                "peer", self.id, "allowed-ips", newAllowedIPs,
+                "persistent-keepalive", str(keepalive_range or keepalive),
+                "preshared-key", uid if psk_exist else "/dev/null",
+            ]
 
             updateAllowedIp = subprocess.check_output(command, stderr=subprocess.STDOUT)
 
@@ -108,6 +113,7 @@ class AmneziaPeer(Peer):
                         "endpoint_allowed_ip": endpoint_allowed_ip,
                         "mtu": mtu,
                         "keepalive": keepalive,
+                        "keepalive_range": keepalive_range,
                         "notes": notes,
                         "preshared_key": preshared_key
                     }).where(

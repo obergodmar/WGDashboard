@@ -12,6 +12,11 @@ import DeleteConfiguration from "@/components/configurationComponents/deleteConf
 import ConfigurationBackupRestore from "@/components/configurationComponents/configurationBackupRestore.vue";
 import EditPeerSettingsOverride
 	from "@/components/configurationComponents/editConfigurationComponents/editPeerSettingsOverride.vue";
+import {
+	amneziaBooleanFields,
+	amneziaInterfaceFields,
+	generateHeaderProtectionKey
+} from "@/models/AmneziaSettings.js";
 const props = defineProps({
 	configurationInfo: Object
 })
@@ -33,6 +38,9 @@ const genKey = () => {
 	}else{
 		reqField.PrivateKey = false;
 	}
+}
+const genHeaderProtectionKey = () => {
+	data.HeaderProtectionKey = generateHeaderProtectionKey()
 }
 const resetForm = () => {
 	dataChanged.value = false;
@@ -197,18 +205,30 @@ const deleteConfigurationModal = ref(false)
 														       v-model="data[key]"
 														       :id="'configuration_' + key">
 													</div>
-													<div v-for="key in ['Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4', 'H1', 'H2', 'H3', 'H4', 'I1', 'I2', 'I3', 'I4', 'I5']"
-													     v-if="configurationInfo.Protocol === 'awg'">
-														<label :for="'configuration_' + key" class="form-label">
-															<small class="text-muted">
-																<LocaleText :t="key"></LocaleText>
-															</small>
-														</label>
-														<input type="text" class="form-control form-control-sm rounded-3"
-														       :disabled="saving"
-														       v-model="data[key]"
-														       :id="'configuration_' + key">
-													</div>
+													<template v-if="configurationInfo.Protocol === 'awg'">
+														<div v-for="key in amneziaInterfaceFields" :key="key">
+															<label :for="'configuration_' + key" class="form-label">
+																<small class="text-muted">
+																	<LocaleText :t="key"></LocaleText>
+																</small>
+															</label>
+															<select v-if="amneziaBooleanFields.includes(key)"
+															        class="form-select form-select-sm rounded-3" :disabled="saving"
+															        v-model="data[key]" :id="'configuration_' + key">
+																<option value="">Not set</option>
+																<option value="off">off</option>
+																<option value="on">on</option>
+															</select>
+															<div v-else class="d-flex align-items-center gap-2">
+																<input type="text" class="form-control form-control-sm rounded-3"
+																       :disabled="saving" v-model="data[key]"
+																       :id="'configuration_' + key">
+																<button v-if="key === 'HeaderProtectionKey'" type="button"
+																        class="btn btn-sm btn-outline-primary rounded-3 flex-shrink-0" :disabled="saving"
+																        @click="genHeaderProtectionKey()">Generate</button>
+															</div>
+														</div>
+													</template>
 												</div>
 											</div>
 										</div>

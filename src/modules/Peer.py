@@ -11,6 +11,7 @@ import jinja2
 import sqlalchemy as db
 from .PeerJob import PeerJob
 from  flask import current_app
+from .AmneziaSettings import AMNEZIA_INTERFACE_FIELDS, PersistentKeepaliveStorage
 from .PeerShareLink import PeerShareLink
 from .Utilities import GenerateWireguardPublicKey, CheckAddress, ValidateDNSAddress
 
@@ -34,7 +35,12 @@ class Peer:
         self.cumu_sent = tableData["cumu_sent"]
         self.cumu_data = tableData["cumu_data"]
         self.mtu = tableData["mtu"]
-        self.keepalive = tableData["keepalive"]
+        keepalive_range = tableData.get("keepalive_range")
+        self.keepalive = (
+            keepalive_range
+            if configuration.Protocol == "awg" and keepalive_range
+            else tableData["keepalive"]
+        )
         self.notes = tableData.get("notes", "")
         self.remote_endpoint = tableData["remote_endpoint"]
         self.preshared_key = tableData["preshared_key"]
@@ -91,14 +97,14 @@ class Peer:
         if isinstance(mtu, str):
             mtu = 0
 
-        if isinstance(keepalive, str):
-            keepalive = 0
-
         if mtu not in range(0, 1461):
             return False, "MTU format is not correct"
 
-        if keepalive < 0:
-            return False, "Persistent Keepalive format is not correct"
+        status, message, keepalive, keepalive_range = PersistentKeepaliveStorage(
+            keepalive, self.configuration.Protocol
+        )
+        if not status:
+            return False, message
 
         if len(private_key) > 0:
             pubKey = GenerateWireguardPublicKey(private_key)
@@ -118,7 +124,12 @@ class Peer:
             if not CheckAddress(newAllowedIPs):
                     return False, "Allowed IPs entry format is incorrect"
 
-            command = [self.configuration.Protocol, "set", self.configuration.Name, "peer", self.id, "allowed-ips", newAllowedIPs, "preshared-key", uid if psk_exist else "/dev/null"]
+            command = [
+                self.configuration.Protocol, "set", self.configuration.Name,
+                "peer", self.id, "allowed-ips", newAllowedIPs,
+                "persistent-keepalive", str(keepalive_range or keepalive),
+                "preshared-key", uid if psk_exist else "/dev/null",
+            ]
             updateAllowedIp = subprocess.check_output(command, stderr=subprocess.STDOUT)
 
             if psk_exist: os.remove(uid)
@@ -143,6 +154,7 @@ class Peer:
                         "endpoint_allowed_ip": endpoint_allowed_ip,
                         "mtu": mtu,
                         "keepalive": keepalive,
+                        "keepalive_range": keepalive_range,
                         "notes": notes,
                         "preshared_key": preshared_key
                     }).where(
@@ -191,26 +203,8 @@ class Peer:
 
         if self.configuration.Protocol == "awg":
             interfaceSection.update({
-                "Jc": self.configuration.Jc,
-                "Jmin": self.configuration.Jmin,
-                "Jmax": self.configuration.Jmax,
-                "S1": self.configuration.S1,
-                "S2": self.configuration.S2,
-                "S3": self.configuration.S3,
-                "S4": self.configuration.S4,
-                "H1": self.configuration.H1,
-                "H2": self.configuration.H2,
-                "H3": self.configuration.H3,
-                "H4": self.configuration.H4,
-                "I1": self.configuration.I1,
-                "I2": self.configuration.I2,
-                "I3": self.configuration.I3,
-                "I4": self.configuration.I4,
-                "I5": self.configuration.I5,
-                "J1": self.configuration.J1,
-                "J2": self.configuration.J2,
-                "J3": self.configuration.J3,
-                "Itime": self.configuration.Itime
+                key: getattr(self.configuration, key)
+                for key in AMNEZIA_INTERFACE_FIELDS
             })
 
         peerSection = {
