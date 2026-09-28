@@ -10,6 +10,7 @@ import mimetypes
 
 from modules.WireguardConfiguration import WireguardConfiguration
 from modules.DashboardConfig import DashboardConfig
+from modules.DashboardEnvironment import RuntimeEnvironment
 from modules.Email import EmailSender
 
 
@@ -27,8 +28,9 @@ def ResponseObject(status=True, message=None, data=None, status_code = 200) -> F
 
 from modules.DashboardClients import DashboardClients
 def createClientBlueprint(wireguardConfigurations: dict[WireguardConfiguration], dashboardConfig: DashboardConfig, dashboardClients: DashboardClients):
-        
-    client = Blueprint('client', __name__, template_folder=os.path.abspath("./static/dist/WGDashboardClient"))
+    client_dist_folder = os.path.join(
+        RuntimeEnvironment.AssetPath, "static/dist/WGDashboardClient")
+    client = Blueprint('client', __name__, template_folder=client_dist_folder)
     prefix = f'{dashboardConfig.GetConfig("Server", "app_prefix")[1]}/client'
 
     def login_required(f):
@@ -198,7 +200,6 @@ def createClientBlueprint(wireguardConfigurations: dict[WireguardConfiguration],
     @client.get(f'{prefix}/assets/<path:filename>')
     @client.get(f'{prefix}/img/<path:filename>')
     def serve_client_static(filename):
-        client_dist_folder = os.path.abspath("./static/dist/WGDashboardClient")
         mimetype = mimetypes.guess_type(filename)[0]
         subfolder = 'assets' if 'assets' in request.path else 'img'
         return send_from_directory(os.path.join(client_dist_folder, subfolder), os.path.basename(filename), mimetype=mimetype)

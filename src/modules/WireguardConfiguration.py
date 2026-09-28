@@ -154,6 +154,12 @@ class WireguardConfiguration:
             else self.DashboardConfig.GetConfig("Server", "awg_conf_path")
         return path
 
+    def runQuickCommand(self, action: str) -> bytes:
+        if action not in ("up", "down", "save"):
+            raise ValueError(f"Unsupported quick command: {action}")
+        command = [f"{self.Protocol}-quick", action, self.configPath]
+        return subprocess.check_output(command, stderr=subprocess.STDOUT)
+
     def __initPeersList(self):
         self.Peers: list[Peer] = []
         self.getPeers()
@@ -567,8 +573,7 @@ class WireguardConfiguration:
                 if presharedKeyExist:
                     os.remove(uid)
 
-            command = [f"{self.Protocol}-quick", "save", self.Name]
-            subprocess.check_output(command, stderr=subprocess.STDOUT)
+            self.runQuickCommand("save")
 
             self.getPeers()
             for p in peers:
@@ -731,8 +736,7 @@ class WireguardConfiguration:
 
     def __wgSave(self) -> tuple[bool, str] | tuple[bool, None]:
         try:
-            command = [f"{self.Protocol}-quick", "save", self.Name]
-            subprocess.check_output(command, stderr=subprocess.STDOUT)
+            self.runQuickCommand("save")
 
             return True, None
         except subprocess.CalledProcessError as e:
@@ -862,16 +866,14 @@ class WireguardConfiguration:
         self.getStatus()
         if self.Status:
             try:
-                command = [f"{self.Protocol}-quick", "down", self.Name]
-                check = subprocess.check_output(command, stderr=subprocess.STDOUT)
+                self.runQuickCommand("down")
 
                 self.removeAutostart()
             except subprocess.CalledProcessError as exc:
                 return False, str(exc.output.strip().decode("utf-8"))
         else:
             try:
-                command = [f"{self.Protocol}-quick", "up", self.Name]
-                check = subprocess.check_output(command, stderr=subprocess.STDOUT)
+                self.runQuickCommand("up")
 
                 self.addAutostart()
             except subprocess.CalledProcessError as exc:

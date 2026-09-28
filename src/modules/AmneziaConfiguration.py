@@ -325,8 +325,7 @@ class AmneziaConfiguration(WireguardConfiguration):
                 if presharedKeyExist:
                     os.remove(uid)
 
-            command = [f"{self.Protocol}-quick", "save", self.Name]
-            subprocess.check_output(command, stderr=subprocess.STDOUT)
+            self.runQuickCommand("save")
 
             self.getPeers()
             for p in peers:

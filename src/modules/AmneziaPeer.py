@@ -97,8 +97,7 @@ class AmneziaPeer(Peer):
                 current_app.logger.error(f"Update peer failed when updating Allowed IPs.\nInput: {newAllowedIPs}\nOutput: {output}")
                 return False, "Internal server error"
 
-            command = [f"{self.configuration.Protocol}-quick", "save", self.configuration.Name]
-            saveConfig = subprocess.check_output(command, stderr=subprocess.STDOUT)
+            saveConfig = self.configuration.runQuickCommand("save")
 
             if f"wg showconf {self.configuration.Name}" not in saveConfig.decode().strip('\n'):
                 current_app.logger.error("Update peer failed when saving the configuration")

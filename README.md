@@ -73,6 +73,111 @@
   <a href="https://wgdashboard.dev">Official Website</a>
 </h1>
 
+# Deployment with Nix flakes
+
+This repository provides both a package and a native NixOS module. The module
+runs WGDashboard directly under systemd; it does not use the Docker image or
+bundle WireGuard and AmneziaWG implementations into the application.
+
+Add WGDashboard to the consumer flake and make its `nixpkgs` input follow the
+consumer's revision:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+    wgdashboard = {
+      url = "github:obergodmar/WGDashboard/nixos";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs =
+    { nixpkgs, wgdashboard, ... }:
+    {
+      nixosConfigurations.vpn-host = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          wgdashboard.nixosModules.default
+          (
+            { config, pkgs, ... }:
+            {
+              services.wgdashboard = {
+                enable = true;
+                listenAddress = "127.0.0.1";
+                port = 10086;
+                dataDir = "/var/lib/wgdashboard/data";
+
+                # Provision this runtime file with agenix, sops-nix, or another
+                # secret manager before the first service start.
+                initialAdminPasswordFile = "/run/secrets/wgdashboard-admin-password";
+
+                # Non-secret values are reconciled into wg-dashboard.ini before
+                # every service start. Settings omitted here remain editable in
+                # the web interface.
+                settings = {
+                  Server = {
+                    dashboard_language = "en-US";
+                    dashboard_theme = "dark";
+                  };
+                  Peers.peer_global_DNS = "1.1.1.1,1.0.0.1";
+                  Clients.sign_up = false;
+                };
+
+                protocols.amneziawg = {
+                  enable = true;
+
+                  # These packages come from the consumer's package set. An
+                  # overlay can pin or replace them without rebuilding or
+                  # patching WGDashboard itself.
+                  package = pkgs.amneziawg-tools;
+                  kernelModulePackage = config.boot.kernelPackages.amneziawg;
+
+                  # For a userspace-only deployment, use these instead:
+                  # kernelModulePackage = null;
+                  # userspaceImplementation = pkgs.amneziawg-go;
+                };
+              };
+            }
+          )
+        ];
+      };
+    };
+}
+```
+
+`protocols.amneziawg.package`, `kernelModulePackage`, and
+`userspaceImplementation` are deliberately consumer-controlled. This allows a
+deployment to provide mutually compatible AmneziaWG tools, kernel, and
+userspace versions through its own `nixpkgs` revision or overlays. AWG 3.x
+requires compatible 3.x implementations on both ends of the tunnel.
+
+The initial password file is read only while creating a new configuration. For
+an existing installation that already has `wg-dashboard.ini`, set
+`initialAdminPasswordFile = null`.
+
+`services.wgdashboard.settings` generates an INI fragment and merges it into
+the mutable `wg-dashboard.ini` before every service start. Declared keys are
+therefore managed declaratively and override later UI changes, while omitted
+keys remain under WGDashboard's control. Do not put passwords, tokens, tunnel
+keys, or other secrets in `settings`: generated Nix store paths are world
+readable. Supply bootstrap passwords through `initialAdminPasswordFile` and
+keep complete tunnel configurations outside Nix expressions. Password and TOTP
+lifecycle fields are rejected by the module. Change an existing password in
+WGDashboard's Account settings. Enroll or reset TOTP through the web interface,
+where the secret seed can be shown as a QR code and verified before MFA is
+enabled.
+
+Build and activate the host in the usual way:
+
+```console
+sudo nixos-rebuild switch --flake .#vpn-host
+```
+
+See [docs/NIXOS.md](docs/NIXOS.md) for all module options and
+[docs/AMNEZIAWG.md](docs/AMNEZIAWG.md) for the supported AWG 3.x fields.
+
 
 # Screenshots
 <img src="https://wgdashboard-resources.tor1.cdn.digitaloceanspaces.com/Documentation%20Images/sign-in.png" alt=""/>

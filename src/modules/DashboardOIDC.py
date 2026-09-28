@@ -4,9 +4,10 @@ import requests
 from jose import jwt
 import certifi
 from flask import current_app
+from .DashboardEnvironment import RuntimeEnvironment
 
 class DashboardOIDC:
-    ConfigurationPath = os.getenv('CONFIGURATION_PATH', '.')
+    ConfigurationPath = RuntimeEnvironment.ConfigurationPath
     ConfigurationFilePath = os.path.join(ConfigurationPath, 'wg-dashboard-oidc-providers.json')
     def __init__(self, mode):
         self.mode = mode

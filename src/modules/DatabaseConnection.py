@@ -1,12 +1,14 @@
 import configparser
 import os
 from sqlalchemy_utils import database_exists, create_database
+from .DashboardEnvironment import RuntimeEnvironment
 
 def ConnectionString(database) -> str:    
+    configurationPath = RuntimeEnvironment.ConfigurationPath
     parser = configparser.ConfigParser(strict=False)
-    parser.read_file(open('wg-dashboard.ini', "r+"))
+    parser.read_file(open(os.path.join(configurationPath, 'wg-dashboard.ini'), "r+"))
 
-    sqlitePath = os.path.join("db")
+    sqlitePath = os.path.join(configurationPath, "db")
     if not os.path.isdir(sqlitePath):
         os.mkdir(sqlitePath)
 

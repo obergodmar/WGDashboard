@@ -30,6 +30,7 @@ from modules.SystemStatus import SystemStatus
 from modules.PeerShareLinks import PeerShareLinks
 from modules.PeerJobs import PeerJobs
 from modules.DashboardConfig import DashboardConfig
+from modules.DashboardEnvironment import RuntimeEnvironment
 from modules.AmneziaSettings import (
     PersistentKeepaliveStorage,
     ValidateAmneziaInterfaceSettings,
@@ -95,8 +96,8 @@ Flask App
 '''
 _, APP_PREFIX_INIT = DashboardConfig().GetConfig("Server", "app_prefix")
 app = Flask("WGDashboard",
-            template_folder=os.path.abspath("./static/dist/WGDashboardAdmin"),
-            static_folder=os.path.abspath("./static/dist/WGDashboardAdmin"),
+            template_folder=os.path.join(RuntimeEnvironment.AssetPath, "static/dist/WGDashboardAdmin"),
+            static_folder=os.path.join(RuntimeEnvironment.AssetPath, "static/dist/WGDashboardAdmin"),
             static_url_path=APP_PREFIX_INIT if APP_PREFIX_INIT else '')
 
 def peerInformationBackgroundThread():
@@ -213,7 +214,6 @@ dictConfig({
 
 
 WireguardConfigurations: dict[str, WireguardConfiguration] = {}
-CONFIGURATION_PATH = os.getenv('CONFIGURATION_PATH', '.')
 
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 5206928
 app.secret_key = secrets.token_urlsafe(32)
@@ -228,7 +228,7 @@ with app.app_context():
     DashboardPlugins: DashboardPlugins = DashboardPlugins(app, WireguardConfigurations)
     DashboardWebHooks: DashboardWebHooks = DashboardWebHooks(DashboardConfig)
     NewConfigurationTemplates: NewConfigurationTemplates = NewConfigurationTemplates()
-    InitWireguardConfigurationsList(startup=True)
+    InitWireguardConfigurationsList(startup=RuntimeEnvironment.AutostartInterfaces)
     DashboardClients: DashboardClients = DashboardClients(WireguardConfigurations)
     AdminOIDC = DashboardOIDC("Admin")
     app.register_blueprint(createClientBlueprint(WireguardConfigurations, DashboardConfig, DashboardClients))
@@ -1546,23 +1546,23 @@ def API_Welcome_Finish():
 
 class Locale:
     def __init__(self):
-        self.localePath = './static/locales/'
+        self.localePath = os.path.join(RuntimeEnvironment.AssetPath, 'static/locales')
         self.activeLanguages = {}
-        with open(os.path.join(f"{self.localePath}supported_locales.json"), "r") as f:
+        with open(os.path.join(self.localePath, "supported_locales.json"), "r") as f:
             self.activeLanguages = sorted(json.loads(''.join(f.readlines())), key=lambda x : x['lang_name'])
         
     def getLanguage(self) -> dict | None:
         currentLanguage = DashboardConfig.GetConfig("Server", "dashboard_language")[1]
         if currentLanguage == "en":
             return None
-        if os.path.exists(os.path.join(f"{self.localePath}{currentLanguage}.json")):
-            with open(os.path.join(f"{self.localePath}{currentLanguage}.json"), "r") as f:
+        if os.path.exists(os.path.join(self.localePath, f"{currentLanguage}.json")):
+            with open(os.path.join(self.localePath, f"{currentLanguage}.json"), "r") as f:
                 return dict(json.loads(''.join(f.readlines())))
         else:
             return None
     
     def updateLanguage(self, lang_id):
-        if not os.path.exists(os.path.join(f"{self.localePath}{lang_id}.json")):
+        if not os.path.exists(os.path.join(self.localePath, f"{lang_id}.json")):
             DashboardConfig.SetConfig("Server", "dashboard_language", "en-US")
         else:
             DashboardConfig.SetConfig("Server", "dashboard_language", lang_id)

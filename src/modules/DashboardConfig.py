@@ -8,12 +8,13 @@ from datetime import datetime
 from typing import Any
 from flask import current_app
 from .DatabaseConnection import ConnectionString
+from .DashboardEnvironment import RuntimeEnvironment
 from .Utilities import (GetRemoteEndpoint, ValidateDNSAddress)
 from .DashboardAPIKey import DashboardAPIKey
 
 class DashboardConfig:
     DashboardVersion = 'v4.3.4'
-    ConfigurationPath = os.getenv('CONFIGURATION_PATH', '.')
+    ConfigurationPath = RuntimeEnvironment.ConfigurationPath
     ConfigurationFilePath = os.path.join(ConfigurationPath, 'wg-dashboard.ini')
 
     def __init__(self):
